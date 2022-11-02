@@ -4,7 +4,7 @@ namespace :migrations do
   DEFAULT_ROLES_MAP = { "admin" => "Administrator", "user" => "User" }.freeze
   COMMON = {
     headers: { "Content-Type" => "application/json" },
-    batch_size: 1000,
+    batch_size: 500,
   }.freeze
 
   desc "Migrates v2 resources to v3"
@@ -38,13 +38,11 @@ namespace :migrations do
 
   task :users, [:start, :stop] => :environment do |_task, args|
     start, stop = range(args)
-
     has_encountred_issue = 0
-    filtered_roles_names = Role::RESERVED_ROLE_NAMES - %w[admin user]
 
     User.select(:id, :uid, :name, :email, :social_uid, :language, :role_id)
         .joins(:role)
-        .where.not(roles: { name: filtered_roles_names }, deleted: true)
+        .where.not(roles: { name: %w[super_admin pending denied] }, deleted: true)
         .find_each(start: start, finish: stop, batch_size: COMMON[:batch_size]) do |u|
           role_name = infer_role_name(u.role.name)
           params = { user: { name: u.name, email: u.email, external_id: u.social_uid, language: u.language, role: role_name } }
@@ -76,14 +74,13 @@ namespace :migrations do
 
   task :rooms, [:start, :stop] => :environment do |_task, args|
     start, stop = range(args)
-
     has_encountred_issue = 0
-    filtered_roles_names = Role::RESERVED_ROLE_NAMES - %w[admin user]
-    filtered_roles_ids = Role.where(name: filtered_roles_names).pluck(:id).uniq
+
+    filtered_roles_ids = Role.where(name: %w[super_admin pending denied]).pluck(:id).uniq
 
     Room.select(:id, :uid, :name, :bbb_id, :last_session, :user_id)
         .joins(:owner)
-        .where.not(users: { role_id: filtered_roles_ids })
+        .where.not(users: { role_id: filtered_roles_ids, deleted: true })
         .find_each(start: start, finish: stop, batch_size: COMMON[:batch_size]) do |r|
           params = { room: { friendly_id: r.uid,
                              name: r.name,
@@ -119,25 +116,23 @@ namespace :migrations do
   private
 
   def encrypt_params(params)
-    unless Rails.configuration.v3_secret_key_base.present?
+    unless ENV["V3_SECRET_KEY_BASE"].present?
       raise red 'Unable to migrate: No "V3_SECRET_KEY_BASE" provided, please check your .env file.'
     end
 
-    unless Rails.configuration.v3_secret_key_base.size >= 32
+    unless ENV["V3_SECRET_KEY_BASE"].size >= 32
       raise red 'Unable to migrate: Provided "V3_SECRET_KEY_BASE" must be at least 32 charchters in length.'
     end
 
-    key = Rails.configuration.v3_secret_key_base[0..31]
+    key = ENV["V3_SECRET_KEY_BASE"][0..31]
     crypt = ActiveSupport::MessageEncryptor.new(key, cipher: 'aes-256-gcm', serializer: Marshal)
     crypt.encrypt_and_sign(params, expires_in: 10.seconds)
   end
 
   def uri(path)
-    unless Rails.configuration.v3_endpoint.present?
-      raise red 'Unable to migrate: No "V3_ENDPOINT" provided, please check your .env file.'
-    end
+    raise red 'Unable to migrate: No "V3_ENDPOINT" provided, please check your .env file.' unless ENV["V3_ENDPOINT"].present?
 
-    res = URI(Rails.configuration.v3_endpoint)
+    res = URI(ENV["V3_ENDPOINT"])
     res.path = "/api/v1/migrations/#{path}.json"
     res
   end
