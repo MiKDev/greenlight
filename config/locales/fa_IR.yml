@@ -311,6 +311,7 @@ fa_IR:
     submit: ارسال
   go_back: بازگشت
   greenlight: بیگ بلو باتن ایران
+  baseusrl: https://bigbluebutton.me
   header:
     all_recordings: تمام جلسات ضبط شده
     dropdown:

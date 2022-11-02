@@ -312,6 +312,7 @@ en:
     submit: Submit
   go_back: Go back
   greenlight: Greenlight
+  baseusrl: https://bigbluebutton.me
   header:
     all_recordings: All Recordings
     dropdown:
